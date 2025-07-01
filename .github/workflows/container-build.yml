@@ -1,0 +1,193 @@
+name: Reusable Container Build Workflow
+
+on:
+  workflow_call:
+    inputs:
+      image-name:
+        description: 'Full image name (e.g., ghcr.io/owner/repo)'
+        required: true
+        type: string
+      context:
+        description: 'Build context path'
+        required: false
+        type: string
+        default: '.'
+      dockerfile:
+        description: 'Path to Dockerfile'
+        required: false
+        type: string
+        default: './Dockerfile'
+      tags:
+        description: 'List of tags (docker/metadata-action format)'
+        required: false
+        type: string
+        default: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha
+      platforms:
+        description: 'Target platforms (comma-separated)'
+        required: false
+        type: string
+        default: 'linux/amd64,linux/arm64'
+      push:
+        description: 'Push image to registry'
+        required: false
+        type: boolean
+        default: true
+      github-token:
+        description: 'GitHub token for authentication (defaults to GITHUB_TOKEN)'
+        required: false
+        type: string
+        default: ${{ github.token }}
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write  # Required for OIDC signing with cosign
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      metadata: ${{ steps.meta.outputs.json }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+
+      - name: Log in to GitHub Container Registry
+        if: inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ inputs.github-token }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.image-name }}
+          tags: ${{ inputs.tags }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: ${{ inputs.push }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Install cosign
+        if: inputs.push
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install syft
+        if: inputs.push
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate SBOM
+        if: inputs.push
+        run: |
+          syft \
+            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" \
+            -o spdx-json \
+            --file sbom.spdx.json
+
+      - name: Sign container image with cosign
+        if: inputs.push
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          echo "Signing image with keyless OIDC signing..."
+          cosign sign --yes \
+            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
+
+      - name: Attach SBOM to image
+        if: inputs.push
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          echo "Attaching SBOM to image..."
+          cosign attach sbom \
+            --sbom sbom.spdx.json \
+            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
+
+      - name: Sign SBOM
+        if: inputs.push
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          echo "Signing SBOM..."
+          cosign sign --yes \
+            --attachment sbom \
+            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
+
+      - name: Verify signatures
+        if: inputs.push
+        env:
+          COSIGN_EXPERIMENTAL: 1
+        run: |
+          echo "Verifying image signature..."
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.+" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
+          
+          echo "Verifying SBOM signature..."
+          cosign verify \
+            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.+" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --attachment sbom \
+            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
+
+      - name: Upload SBOM artifact
+        if: inputs.push
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.spdx.json
+          retention-days: 90
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Container Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ inputs.push }}" == "true" ]]; then
+            echo "✅ **Image Published**" >> $GITHUB_STEP_SUMMARY
+            echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+            echo "- Tags:" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.meta.outputs.tags }}" | while read tag; do
+              echo "  - \`$tag\`" >> $GITHUB_STEP_SUMMARY
+            done
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Signatures" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ Container image signed with cosign" >> $GITHUB_STEP_SUMMARY
+            echo "- ✅ SBOM attached and signed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Verification" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "cosign verify --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.+' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "🏗️ **Image Built (not pushed)**" >> $GITHUB_STEP_SUMMARY
+            echo "- Platforms: ${{ inputs.platforms }}" >> $GITHUB_STEP_SUMMARY
+          fi
