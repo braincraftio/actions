@@ -90,8 +90,12 @@ jobs:
           push: ${{ inputs.push }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ inputs.image-name }}:devcontainer-latest
+          cache-to: |
+            type=gha,mode=max
+            type=inline
           provenance: true
           sbom: true
 
