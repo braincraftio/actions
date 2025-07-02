@@ -203,12 +203,11 @@ jobs:
             echo "- Platforms: ${{ inputs.platforms }}" >> $GITHUB_STEP_SUMMARY
           fi
 
-  # Run verification as a separate, non-blocking job
+  # Run verification as a separate job
   verify:
     needs: build
     runs-on: ubuntu-latest
     if: inputs.push && inputs.verify-signatures
-    continue-on-error: true # Make this job non-blocking
     steps:
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -218,32 +217,25 @@ jobs:
           COSIGN_EXPERIMENTAL: 1
         run: |
           echo "🔍 Running post-build signature verification..."
-          echo "This is a non-blocking verification step for monitoring purposes."
           
-          # Try multiple identity patterns to handle various scenarios
-          IDENTITIES=(
-            "https://github.com/braincraftio/actions/.github/workflows/container-build.yml@refs/heads/main"
-            "https://github.com/braincraftio/actions/.github/workflows/container-build.yml@.+"
-            "https://github.com/braincraftio/containers/.github/workflows/container-build.yml@.+"
-          )
-          
+          # The certificate identity for reusable workflows is always the workflow file path
+          CERT_IDENTITY="https://github.com/braincraftio/actions/.github/workflows/container-build.yml@refs/heads/main"
           IMAGE="${{ needs.build.outputs.image-name }}@${{ needs.build.outputs.image-digest }}"
           
-          echo "Attempting to verify image: $IMAGE"
+          echo "Verifying image: $IMAGE"
+          echo "Expected identity: $CERT_IDENTITY"
           
-          for identity in "${IDENTITIES[@]}"; do
-            echo ""
-            echo "Trying identity pattern: $identity"
-            if cosign verify \
-              --certificate-identity-regexp "$identity" \
-              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              "$IMAGE" 2>/dev/null; then
-              echo "✅ Verification successful with identity: $identity"
-              exit 0
-            fi
-          done
-          
-          echo ""
-          echo "⚠️  Could not verify with any known identity pattern."
-          echo "This may indicate the image was built before signing was implemented."
-          echo "Future builds will have proper signatures."
+          # Run verification with full output for debugging
+          if cosign verify \
+            --certificate-identity-regexp "$CERT_IDENTITY" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$IMAGE"; then
+            echo "✅ Signature verification successful!"
+          else
+            echo "❌ Signature verification failed"
+            echo "This may be due to:"
+            echo "- Image visibility (private images require authentication)"
+            echo "- Certificate identity mismatch"
+            echo "- Image was built before signing was implemented"
+            exit 1
+          fi
