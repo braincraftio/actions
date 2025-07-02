@@ -4,21 +4,21 @@ on:
   workflow_call:
     inputs:
       image-name:
-        description: 'Full image name (e.g., ghcr.io/owner/repo)'
+        description: "Full image name (e.g., ghcr.io/owner/repo)"
         required: true
         type: string
       context:
-        description: 'Build context path'
+        description: "Build context path"
         required: false
         type: string
-        default: '.'
+        default: "."
       dockerfile:
-        description: 'Path to Dockerfile'
+        description: "Path to Dockerfile"
         required: false
         type: string
-        default: './Dockerfile'
+        default: "./Dockerfile"
       tags:
-        description: 'List of tags (docker/metadata-action format)'
+        description: "List of tags (docker/metadata-action format)"
         required: false
         type: string
         default: |
@@ -28,25 +28,35 @@ on:
           type=semver,pattern={{major}}.{{minor}}
           type=sha
       platforms:
-        description: 'Target platforms (comma-separated)'
+        description: "Target platforms (comma-separated)"
         required: false
         type: string
-        default: 'linux/amd64,linux/arm64'
+        default: "linux/amd64,linux/arm64"
       push:
-        description: 'Push image to registry'
+        description: "Push image to registry"
         required: false
         type: boolean
         default: true
       github-token:
-        description: 'GitHub token for authentication (defaults to GITHUB_TOKEN)'
+        description: "GitHub token for authentication (defaults to GITHUB_TOKEN)"
         required: false
         type: string
         default: ${{ github.token }}
+      calling-repository:
+        description: "The repository that called this workflow (for cosign verification)"
+        required: false
+        type: string
+        default: ''
+      verify-signatures:
+        description: "Whether to verify signatures after push"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
   packages: write
-  id-token: write  # Required for OIDC signing with cosign
+  id-token: write # Required for OIDC signing with cosign
 
 jobs:
   build:
@@ -145,19 +155,30 @@ jobs:
             "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
 
       - name: Verify signatures
-        if: inputs.push
+        if: inputs.push && inputs.verify-signatures
         env:
           COSIGN_EXPERIMENTAL: 1
         run: |
+          # Determine the certificate identity pattern based on whether this is called from another repo
+          if [[ -n "${{ inputs.calling-repository }}" ]]; then
+            # When called from another repository, the certificate will have the reusable workflow identity
+            CERT_IDENTITY="https://github.com/${{ github.repository }}/.github/workflows/container-build.yml@.+"
+            echo "Using reusable workflow identity: $CERT_IDENTITY"
+          else
+            # When called directly, use the current repository identity
+            CERT_IDENTITY="https://github.com/${{ github.repository }}/.github/workflows/.+"
+            echo "Using direct workflow identity: $CERT_IDENTITY"
+          fi
+          
           echo "Verifying image signature..."
           cosign verify \
-            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.+" \
+            --certificate-identity-regexp "$CERT_IDENTITY" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
           
           echo "Verifying SBOM signature..."
           cosign verify \
-            --certificate-identity-regexp "https://github.com/${{ github.repository }}/.github/workflows/.+" \
+            --certificate-identity-regexp "$CERT_IDENTITY" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
             --attachment sbom \
             "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
@@ -189,7 +210,11 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Verification" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-            echo "cosign verify --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.+' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+            if [[ -n "${{ inputs.calling-repository }}" ]]; then
+              echo "cosign verify --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.github/workflows/container-build.yml@.+' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "cosign verify --certificate-identity-regexp 'https://github.com/${{ github.repository }}/.+' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' ${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" >> $GITHUB_STEP_SUMMARY
+            fi
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "🏗️ **Image Built (not pushed)**" >> $GITHUB_STEP_SUMMARY
