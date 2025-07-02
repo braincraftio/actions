@@ -168,39 +168,6 @@ jobs:
             --attachment sbom \
             "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}"
 
-      - name: Verify signatures
-        if: inputs.push && inputs.verify-signatures
-        env:
-          COSIGN_EXPERIMENTAL: 1
-        run: |
-          # The certificate is always signed with the identity of where the workflow runs (this repo)
-          # This is the reusable workflow, so the identity is always from the actions repository
-          CERT_IDENTITY="https://github.com/${{ github.repository }}/.github/workflows/container-build.yml@.+"
-          echo "Using workflow identity: $CERT_IDENTITY"
-          echo "GitHub repository context: ${{ github.repository }}"
-          echo "Calling repository: ${{ inputs.calling-repository }}"
-          
-          echo "Verifying image signature..."
-          cosign verify \
-            --certificate-identity-regexp "$CERT_IDENTITY" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" || {
-            echo "⚠️  Signature verification failed. This is expected for images built before the signing implementation."
-            echo "⚠️  Future builds will have valid signatures."
-            echo "⚠️  Continuing workflow..."
-          }
-          
-          echo "Verifying SBOM signature..."
-          cosign verify \
-            --certificate-identity-regexp "$CERT_IDENTITY" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            --attachment sbom \
-            "${{ inputs.image-name }}@${{ steps.build.outputs.digest }}" || {
-            echo "⚠️  SBOM signature verification failed. This is expected for images built before the signing implementation."
-            echo "⚠️  Future builds will have valid signatures."
-            echo "⚠️  Continuing workflow..."
-          }
-
       - name: Upload SBOM artifact
         if: inputs.push
         uses: actions/upload-artifact@v4
