@@ -51,7 +51,7 @@ on:
         description: "The repository that called this workflow (for cosign verification)"
         required: false
         type: string
-        default: ''
+        default: ""
       verify-signatures:
         description: "Whether to verify signatures after push"
         required: false
@@ -217,14 +217,14 @@ jobs:
           COSIGN_EXPERIMENTAL: 1
         run: |
           echo "🔍 Running post-build signature verification..."
-          
+
           # The certificate identity for reusable workflows is always the workflow file path
           CERT_IDENTITY="https://github.com/braincraftio/actions/.github/workflows/container-build.yml@refs/heads/main"
           IMAGE="${{ needs.build.outputs.image-name }}@${{ needs.build.outputs.image-digest }}"
-          
+
           echo "Verifying image: $IMAGE"
           echo "Expected identity: $CERT_IDENTITY"
-          
+
           # Run verification with full output for debugging
           if cosign verify \
             --certificate-identity-regexp "$CERT_IDENTITY" \
