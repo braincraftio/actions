@@ -1,73 +1,77 @@
-name: "Setup BrainCraft.io Workspace"
-description: "Sets up the complete multi-root workspace environment for BrainCraft.io"
+name: 'Setup BrainCraft.io Workspace'
+description: 'Sets up the complete multi-root workspace environment for BrainCraft.io'
 inputs:
   token:
-    description: "GitHub token for repository access"
+    description: 'GitHub token for repository access'
     required: false
     default: ${{ github.token }}
+  workspace-path:
+    description: 'Path to clone the workspace'
+    required: false
+    default: 'workspace'
 outputs:
   workspace-root:
-    description: "Path to the workspace root"
+    description: 'Path to the workspace root'
     value: ${{ steps.setup.outputs.workspace-root }}
 runs:
   using: "composite"
   steps:
-    - name: Clone workspace repository (workspace root)
+    - name: Clone workspace repository (root)
       uses: actions/checkout@v4
       with:
         repository: braincraftio/workspace
-        path: workspace
+        path: ${{ inputs.workspace-path }}
         token: ${{ inputs.token }}
-
+    
     - name: Clone actions repository
       uses: actions/checkout@v4
       with:
         repository: braincraftio/actions
-        path: workspace/actions
+        path: ${{ inputs.workspace-path }}/actions
         token: ${{ inputs.token }}
-
+    
     - name: Clone containers repository
       uses: actions/checkout@v4
       with:
         repository: braincraftio/containers
-        path: workspace/containers
+        path: ${{ inputs.workspace-path }}/containers
         token: ${{ inputs.token }}
-
-    - name: Clone dot-github repository
-      uses: actions/checkout@v4
-      with:
-        repository: braincraftio/.github
-        path: workspace/dot-github
-        token: ${{ inputs.token }}
-
+    
     - name: Clone style-system repository
       uses: actions/checkout@v4
       with:
         repository: braincraftio/style-system
-        path: workspace/style-system
+        path: ${{ inputs.workspace-path }}/style-system
         token: ${{ inputs.token }}
-
+    
+    - name: Clone .github repository
+      uses: actions/checkout@v4
+      with:
+        repository: braincraftio/.github
+        path: ${{ inputs.workspace-path }}/dot-github
+        token: ${{ inputs.token }}
+    
     - name: Setup workspace environment
       id: setup
       shell: bash
       run: |
-        cd workspace
-
+        cd ${{ inputs.workspace-path }}
+        
         # Set output for workspace root
         echo "workspace-root=$PWD" >> $GITHUB_OUTPUT
-
+        
         # Trust mise configuration
-        mise trust --yes
-
+        mise trust --all
+        
         # Install all tools
         mise install
-
+        
         # Verify setup
         echo "=== Workspace Structure ==="
         ls -la
-
+        
         echo "=== Mise Tools ==="
         mise list || true
-
+        
         echo "=== Available Mise Tasks ==="
         mise tasks || true
