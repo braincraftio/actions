@@ -31,6 +31,11 @@ jobs:
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      options: >-
+        --user root
+        --privileged
+        -v /var/run/docker.sock:/var/run/docker.sock
+        --security-opt seccomp=unconfined
     
     steps:
       - name: Setup BrainCraft.io Workspace
