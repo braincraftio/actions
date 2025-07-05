@@ -37,9 +37,9 @@ jobs:
         uses: braincraftio/actions/.github/actions/setup-workspace@main
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          workspace-path: .
       
       - name: Check Markdown Links
-        working-directory: workspace
         run: |
           if [[ "${{ inputs.check-external }}" == "true" ]]; then
             echo "📋 Checking markdown links (including external)..."
@@ -51,7 +51,6 @@ jobs:
       
       - name: Generate Broken Links Report
         if: always() && inputs.generate-report
-        working-directory: workspace
         run: |
           mise run lint:markdown:report
       
@@ -60,7 +59,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: broken-links-report
-          path: workspace/.reports/broken-links-all.md
+          path: .reports/broken-links-all.md
           retention-days: 7
       
       - name: Comment PR with Results

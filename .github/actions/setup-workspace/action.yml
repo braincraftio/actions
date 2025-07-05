@@ -1,5 +1,5 @@
 name: 'Setup BrainCraft.io Workspace'
-description: 'Sets up the complete multi-root workspace environment for BrainCraft.io'
+description: 'Sets up the complete multi-root workspace environment for BrainCraft.io using mise'
 inputs:
   token:
     description: 'GitHub token for repository access'
@@ -23,37 +23,11 @@ runs:
         path: ${{ inputs.workspace-path }}
         token: ${{ inputs.token }}
     
-    - name: Clone actions repository
-      uses: actions/checkout@v4
-      with:
-        repository: braincraftio/actions
-        path: ${{ inputs.workspace-path }}/actions
-        token: ${{ inputs.token }}
-    
-    - name: Clone containers repository
-      uses: actions/checkout@v4
-      with:
-        repository: braincraftio/containers
-        path: ${{ inputs.workspace-path }}/containers
-        token: ${{ inputs.token }}
-    
-    - name: Clone style-system repository
-      uses: actions/checkout@v4
-      with:
-        repository: braincraftio/style-system
-        path: ${{ inputs.workspace-path }}/style-system
-        token: ${{ inputs.token }}
-    
-    - name: Clone .github repository
-      uses: actions/checkout@v4
-      with:
-        repository: braincraftio/.github
-        path: ${{ inputs.workspace-path }}/dot-github
-        token: ${{ inputs.token }}
-    
-    - name: Setup workspace environment
+    - name: Setup mise and clone repositories
       id: setup
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         cd ${{ inputs.workspace-path }}
         
@@ -66,12 +40,15 @@ runs:
         # Install all tools
         mise install
         
+        # Clone all child repositories using mise
+        mise run git:clone
+        
         # Verify setup
         echo "=== Workspace Structure ==="
         ls -la
         
-        echo "=== Mise Tools ==="
-        mise list || true
+        echo "=== Repository Status ==="
+        mise run git:status || true
         
         echo "=== Available Mise Tasks ==="
         mise tasks || true
