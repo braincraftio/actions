@@ -16,6 +16,14 @@ outputs:
 runs:
   using: "composite"
   steps:
+    - name: Fix GitHub Actions permissions
+      shell: bash
+      run: |
+        # Ensure GitHub Actions directories have proper permissions
+        sudo mkdir -p /__w/_temp/_runner_file_commands
+        sudo chmod -R 777 /__w/_temp
+        sudo chown -R $(whoami):$(whoami) /__w/_temp || true
+        
     - name: Clone workspace repository (root)
       uses: actions/checkout@v4
       with:
