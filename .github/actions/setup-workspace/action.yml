@@ -23,14 +23,14 @@ runs:
         sudo mkdir -p /__w/_temp/_runner_file_commands
         sudo chmod -R 777 /__w/_temp
         sudo chown -R $(whoami):$(whoami) /__w/_temp || true
-        
+
     - name: Clone workspace repository (root)
       uses: actions/checkout@v4
       with:
         repository: braincraftio/workspace
         path: ${{ inputs.workspace-path }}
         token: ${{ inputs.token }}
-    
+
     - name: Setup mise and clone repositories
       id: setup
       shell: bash
@@ -38,25 +38,25 @@ runs:
         GITHUB_TOKEN: ${{ inputs.token }}
       run: |
         cd ${{ inputs.workspace-path }}
-        
+
         # Set output for workspace root
         echo "workspace-root=$PWD" >> $GITHUB_OUTPUT
-        
+
         # Trust mise configuration
         mise trust --all
-        
+
         # Install all tools
         mise install
-        
+
         # Clone all child repositories using mise
         mise run git:clone
-        
+
         # Verify setup
         echo "=== Workspace Structure ==="
         ls -la
-        
+
         echo "=== Repository Status ==="
         mise run git:status || true
-        
+
         echo "=== Available Mise Tasks ==="
         mise tasks || true
